@@ -20,7 +20,6 @@ import android.app.Application;
 import android.app.Dialog;
 import android.app.Fragment;
 import android.content.Context;
-import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.net.Uri;
 import android.util.DisplayMetrics;
@@ -37,7 +36,6 @@ import me.jessyan.autosize.internal.CancelAdapt;
 import me.jessyan.autosize.internal.CustomAdapt;
 import me.jessyan.autosize.utils.LogUtils;
 import me.jessyan.autosize.utils.Preconditions;
-import me.jessyan.autosize.utils.ScreenUtils;
 
 /**
  * ================================================
@@ -150,18 +148,13 @@ public final class AutoSize {
     public static void autoConvertDensity(Activity activity, float sizeInDp, boolean isBaseOnWidth) {
         Preconditions.checkNotNull(activity, "activity == null");
 
-        boolean isVertical = activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
-
-        if (isVertical != AutoSizeConfig.getInstance().isVertical()) {
-            AutoSizeConfig.getInstance().setVertical(isVertical);
-            int[] screenSize = ScreenUtils.getScreenSize(activity.getApplicationContext());
-            AutoSizeConfig.getInstance().setScreenWidth(screenSize[0]);
-            AutoSizeConfig.getInstance().setScreenHeight(screenSize[1]);
-        }
+        float subunitsDesignSize = isBaseOnWidth ? AutoSizeConfig.getInstance().getUnitsManager().getDesignWidth()
+                : AutoSizeConfig.getInstance().getUnitsManager().getDesignHeight();
+        subunitsDesignSize = subunitsDesignSize > 0 ? subunitsDesignSize : sizeInDp;
 
         int screenSize = isBaseOnWidth ? AutoSizeConfig.getInstance().getScreenWidth()
                 : AutoSizeConfig.getInstance().getScreenHeight();
-        String key = sizeInDp + "|" + isBaseOnWidth + "|"
+        String key = sizeInDp + "|" + subunitsDesignSize + "|" + isBaseOnWidth + "|"
                 + AutoSizeConfig.getInstance().isUseDeviceSize() + "|"
                 + AutoSizeConfig.getInstance().getInitScaledDensity() + "|"
                 + screenSize;
@@ -184,9 +177,9 @@ public final class AutoSize {
             targetDensityDpi = (int) (targetDensity * 160);
 
             if (isBaseOnWidth) {
-                targetXdpi = AutoSizeConfig.getInstance().getScreenWidth() * 1.0f / sizeInDp;
+                targetXdpi = AutoSizeConfig.getInstance().getScreenWidth() * 1.0f / subunitsDesignSize;
             } else {
-                targetXdpi = AutoSizeConfig.getInstance().getScreenHeight() * 1.0f / sizeInDp;
+                targetXdpi = AutoSizeConfig.getInstance().getScreenHeight() * 1.0f / subunitsDesignSize;
             }
 
             mCache.put(key, new DisplayMetricsInfo(targetDensity, targetDensityDpi, targetScaledDensity, targetXdpi));
@@ -199,9 +192,10 @@ public final class AutoSize {
 
         setDensity(activity, targetDensity, targetDensityDpi, targetScaledDensity, targetXdpi);
 
-        LogUtils.d(String.format(Locale.ENGLISH, "The %s has been adapted! \n%s Info: isBaseOnWidth = %s, %s = %f, targetDensity = %f, targetScaledDensity = %f, targetDensityDpi = %d, targetXdpi = %f"
+        LogUtils.d(String.format(Locale.ENGLISH, "The %s has been adapted! \n%s Info: isBaseOnWidth = %s, %s = %f, %s = %f, targetDensity = %f, targetScaledDensity = %f, targetDensityDpi = %d, targetXdpi = %f"
                 , activity.getClass().getName(), activity.getClass().getSimpleName(), isBaseOnWidth, isBaseOnWidth ? "designWidthInDp"
-                        : "designHeightInDp", sizeInDp, targetDensity, targetScaledDensity, targetDensityDpi, targetXdpi));
+                        : "designHeightInDp", sizeInDp, isBaseOnWidth ? "designWidthInSubunits" : "designHeightInSubunits", subunitsDesignSize
+                , targetDensity, targetScaledDensity, targetDensityDpi, targetXdpi));
     }
 
     /**

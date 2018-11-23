@@ -84,7 +84,6 @@ public final class AutoSizeConfig {
     private int mScreenWidth;
     /**
      * 设备的屏幕总高度, 单位 px, 如果 {@link #isUseDeviceSize} 为 {@code false}, 屏幕总高度会减去状态栏的高度
-     * 如果有导航栏也会减去导航栏的高度
      */
     private int mScreenHeight;
     /**
@@ -96,8 +95,8 @@ public final class AutoSizeConfig {
     private boolean isBaseOnWidth = true;
     /**
      * 此字段表示是否使用设备的实际尺寸做适配
-     * {@link #isUseDeviceSize} 为 {@code true} 表示屏幕高度 {@link #mScreenHeight} 包含状态栏的高度, 如果有导航栏也会包含导航栏的高度
-     * {@link #isUseDeviceSize} 为 {@code false} 表示 {@link #mScreenHeight} 会减去状态栏的高度, 如果有导航栏也会减去导航栏的高度, 默认为 {@code true}
+     * {@link #isUseDeviceSize} 为 {@code true} 表示屏幕高度 {@link #mScreenHeight} 包含状态栏的高度
+     * {@link #isUseDeviceSize} 为 {@code false} 表示 {@link #mScreenHeight} 会减去状态栏的高度, 默认为 {@code true}
      */
     private boolean isUseDeviceSize = true;
     /**
@@ -120,6 +119,10 @@ public final class AutoSizeConfig {
      * 屏幕方向, {@code true} 为纵向, {@code false} 为横向
      */
     private boolean isVertical;
+    /**
+     * 屏幕适配监听器，用于监听屏幕适配时的一些事件
+     */
+    private onAdaptListener mOnAdaptListener;
 
     public static AutoSizeConfig getInstance() {
         if (sInstance == null) {
@@ -141,7 +144,7 @@ public final class AutoSizeConfig {
     }
 
     /**
-     * v0.6.0 以后, 框架会在 APP 启动时自动调用此方法进行初始化, 使用者无需手动初始化, 初始化方法只能调用一次, 否则报错
+     * v0.7.0 以后, 框架会在 APP 启动时自动调用此方法进行初始化, 使用者无需手动初始化, 初始化方法只能调用一次, 否则报错
      * 此方法默认使用以宽度进行等比例适配, 如想使用以高度进行等比例适配, 请调用 {@link #init(Application, boolean)}
      *
      * @param application {@link Application}
@@ -151,7 +154,7 @@ public final class AutoSizeConfig {
     }
 
     /**
-     * v0.6.0 以后, 框架会在 APP 启动时自动调用此方法进行初始化, 使用者无需手动初始化, 初始化方法只能调用一次, 否则报错
+     * v0.7.0 以后, 框架会在 APP 启动时自动调用此方法进行初始化, 使用者无需手动初始化, 初始化方法只能调用一次, 否则报错
      * 此方法使用默认的 {@link AutoAdaptStrategy} 策略, 如想使用自定义的 {@link AutoAdaptStrategy} 策略
      * 请调用 {@link #init(Application, boolean, AutoAdaptStrategy)}
      *
@@ -163,7 +166,7 @@ public final class AutoSizeConfig {
     }
 
     /**
-     * v0.6.0 以后, 框架会在 APP 启动时自动调用此方法进行初始化, 使用者无需手动初始化, 初始化方法只能调用一次, 否则报错
+     * v0.7.0 以后, 框架会在 APP 启动时自动调用此方法进行初始化, 使用者无需手动初始化, 初始化方法只能调用一次, 否则报错
      *
      * @param application   {@link Application}
      * @param isBaseOnWidth 详情请查看 {@link #isBaseOnWidth} 的注释
@@ -196,7 +199,7 @@ public final class AutoSizeConfig {
                                 Resources.getSystem().getDisplayMetrics().scaledDensity;
                         LogUtils.d("initScaledDensity = " + mInitScaledDensity + " on ConfigurationChanged");
                     }
-                    isVertical = application.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
+                    isVertical = newConfig.orientation == Configuration.ORIENTATION_PORTRAIT;
                     int[] screenSize = ScreenUtils.getScreenSize(application);
                     mScreenWidth = screenSize[0];
                     mScreenHeight = screenSize[1];
@@ -209,7 +212,7 @@ public final class AutoSizeConfig {
             }
         });
         LogUtils.d("initDensity = " + mInitDensity + ", initScaledDensity = " + mInitScaledDensity);
-        mActivityLifecycleCallbacks = new ActivityLifecycleCallbacksImpl(strategy == null ? new DefaultAutoAdaptStrategy() : strategy);
+        mActivityLifecycleCallbacks = new ActivityLifecycleCallbacksImpl(strategy == null ? new WrapperAutoAdaptStrategy(new DefaultAutoAdaptStrategy()) : strategy);
         application.registerActivityLifecycleCallbacks(mActivityLifecycleCallbacks);
         return this;
     }
@@ -251,7 +254,18 @@ public final class AutoSizeConfig {
     public AutoSizeConfig setAutoAdaptStrategy(AutoAdaptStrategy autoAdaptStrategy) {
         Preconditions.checkNotNull(autoAdaptStrategy, "autoAdaptStrategy == null");
         Preconditions.checkNotNull(mActivityLifecycleCallbacks, "Please call the AutoSizeConfig#init() first");
-        mActivityLifecycleCallbacks.setAutoAdaptStrategy(autoAdaptStrategy);
+        mActivityLifecycleCallbacks.setAutoAdaptStrategy(new WrapperAutoAdaptStrategy(autoAdaptStrategy));
+        return this;
+    }
+
+    /**
+     * 设置屏幕适配监听器
+     *
+     * @param onAdaptListener {@link onAdaptListener}
+     */
+    public AutoSizeConfig setOnAdaptListener(onAdaptListener onAdaptListener) {
+        Preconditions.checkNotNull(onAdaptListener, "onAdaptListener == null");
+        mOnAdaptListener = onAdaptListener;
         return this;
     }
 
@@ -269,7 +283,7 @@ public final class AutoSizeConfig {
     /**
      * 是否使用设备的实际尺寸做适配
      *
-     * @param useDeviceSize {@code true} 为使用设备的实际尺寸 (包含状态栏, 导航栏), {@code false} 为不使用 (不包含状态栏, 导航栏)
+     * @param useDeviceSize {@code true} 为使用设备的实际尺寸 (包含状态栏), {@code false} 为不使用设备的实际尺寸 (不包含状态栏)
      * @see #isUseDeviceSize 详情请查看这个字段的注释
      */
     public AutoSizeConfig setUseDeviceSize(boolean useDeviceSize) {
@@ -318,7 +332,7 @@ public final class AutoSizeConfig {
     /**
      * {@link ExternalAdaptManager} 用来管理外部三方库 {@link Activity} 的适配
      *
-     * @return {@link ExternalAdaptManager}
+     * @return {@link #mExternalAdaptManager}
      */
     public ExternalAdaptManager getExternalAdaptManager() {
         return mExternalAdaptManager;
@@ -327,10 +341,19 @@ public final class AutoSizeConfig {
     /**
      * {@link UnitsManager} 用来管理 AndroidAutoSize 支持的所有单位, AndroidAutoSize 支持五种单位 (dp、sp、pt、in、mm)
      *
-     * @return {@link UnitsManager}
+     * @return {@link #mUnitsManager}
      */
     public UnitsManager getUnitsManager() {
         return mUnitsManager;
+    }
+
+    /**
+     * 返回 {@link #mOnAdaptListener}
+     *
+     * @return {@link #mOnAdaptListener}
+     */
+    public onAdaptListener getOnAdaptListener() {
+        return mOnAdaptListener;
     }
 
     /**
@@ -366,7 +389,7 @@ public final class AutoSizeConfig {
      * @return {@link #mScreenHeight}
      */
     public int getScreenHeight() {
-        return isUseDeviceSize() ? mScreenHeight : mScreenHeight - ScreenUtils.getStatusBarHeight() - ScreenUtils.getHeightOfNavigationBar(getApplication());
+        return isUseDeviceSize() ? mScreenHeight : mScreenHeight - ScreenUtils.getStatusBarHeight();
     }
 
     /**
@@ -439,8 +462,9 @@ public final class AutoSizeConfig {
      *
      * @param vertical {@code true} 为纵向, {@code false} 为横向
      */
-    public void setVertical(boolean vertical) {
+    public AutoSizeConfig setVertical(boolean vertical) {
         isVertical = vertical;
+        return this;
     }
 
     /**
@@ -448,19 +472,21 @@ public final class AutoSizeConfig {
      *
      * @param screenWidth 屏幕宽度
      */
-    public void setScreenWidth(int screenWidth) {
+    public AutoSizeConfig setScreenWidth(int screenWidth) {
         Preconditions.checkArgument(screenWidth > 0, "screenWidth must be > 0");
         mScreenWidth = screenWidth;
+        return this;
     }
 
     /**
      * 设置屏幕高度
      *
-     * @param screenHeight 屏幕高度 (包含状态栏和导航栏)
+     * @param screenHeight 屏幕高度 (需要包含状态栏)
      */
-    public void setScreenHeight(int screenHeight) {
+    public AutoSizeConfig setScreenHeight(int screenHeight) {
         Preconditions.checkArgument(screenHeight > 0, "screenHeight must be > 0");
         mScreenHeight = screenHeight;
+        return this;
     }
 
     /**
@@ -468,9 +494,10 @@ public final class AutoSizeConfig {
      *
      * @param designWidthInDp 设计图宽度
      */
-    public void setDesignWidthInDp(int designWidthInDp) {
+    public AutoSizeConfig setDesignWidthInDp(int designWidthInDp) {
         Preconditions.checkArgument(designWidthInDp > 0, "designWidthInDp must be > 0");
         mDesignWidthInDp = designWidthInDp;
+        return this;
     }
 
     /**
@@ -478,9 +505,10 @@ public final class AutoSizeConfig {
      *
      * @param designHeightInDp 设计图高度
      */
-    public void setDesignHeightInDp(int designHeightInDp) {
+    public AutoSizeConfig setDesignHeightInDp(int designHeightInDp) {
         Preconditions.checkArgument(designHeightInDp > 0, "designHeightInDp must be > 0");
         mDesignHeightInDp = designHeightInDp;
+        return this;
     }
 
     /**
